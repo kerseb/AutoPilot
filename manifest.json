@@ -4,7 +4,7 @@
     "website_url": "https://github.com/kerseb/AutoPilot",
     "description": "AutoPilot is a simple ship autopilot mod that allows for automated steering",
     "dependencies": [
-        "BepInEx-BepInExPack-5.4.23.3",
+        "BepInEx-BepInExPack-5.4.2100",
         "App24-SailwindModdingHelper-2.1.1"
     ]
 }
