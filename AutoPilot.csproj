@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>AutoPilot</AssemblyName>
+    <Product>AutoPilot</Product>
+    <Version>1.0.0</Version>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://nuget.bepinex.dev/v3/index.json;
+      https://nuget.samboy.dev/v3/index.json
+    </RestoreAdditionalProjectSources>
+    <RootNamespace>AutoPilot</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
+    <Reference Include="Assembly-CSharp">
+      <HintPath>C:\games\Steam\steamapps\common\Sailwind\Sailwind_Data\Managed\Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>C:\games\Steam\steamapps\common\Sailwind\Sailwind_Data\Managed\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>C:\games\Steam\steamapps\common\Sailwind\Sailwind_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\games\Steam\steamapps\common\Sailwind\Sailwind_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
+    <Reference Include="SailwindModdingHelper">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\games\Steam\steamapps\common\Sailwind\BepInEx\plugins\SailwindModdingHelper\SailwindModdingHelper.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AutoPilotInfo.cs"/>
+    <Compile Include="AutoPilotMain.cs" />
+    <Compile Include="AutoPilotPatches.cs" />
+    <Compile Include="AutoPilotSteerage.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="CHANGELOG.md" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all" />
+  </ItemGroup>
+  <PropertyGroup>
+    <PostBuildEvent>xcopy /y "C:\games\Steam\steamapps\common\Sailwind\AutoPilot\bin\Debug\netstandard2.0\AutoPilot.dll" "C:\games\Steam\steamapps\common\Sailwind\BepInEx\plugins\AutoPilot"</PostBuildEvent>
+    <PostBuildEvent>xcopy /y "C:\games\Steam\steamapps\common\Sailwind\AutoPilot\bin\Debug\netstandard2.0\AutoPilot.deps.json" "C:\games\Steam\steamapps\common\Sailwind\BepInEx\plugins\AutoPilot"</PostBuildEvent>
+    <PostBuildEvent>xcopy /y "C:\games\Steam\steamapps\common\Sailwind\AutoPilot\README.md" "C:\games\Steam\steamapps\common\Sailwind\BepInEx\plugins\AutoPilot"</PostBuildEvent>
+    <PostBuildEvent>xcopy /y "C:\games\Steam\steamapps\common\Sailwind\AutoPilot\CHANGELOG.md" "C:\games\Steam\steamapps\common\Sailwind\BepInEx\plugins\AutoPilot"</PostBuildEvent>
+  </PropertyGroup>
+</Project>
+

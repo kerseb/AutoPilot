@@ -1,0 +1,10 @@
+{
+    "name": "AutoPilot",
+    "version_number": "1.0.0",
+    "website_url": "https://github.com/NANDbrew/MissionRework",
+    "description": "Deliver mission goods by dropping them in the recieving area instead of directly at the port dude",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100",
+        "App24-SailwindModdingHelper-2.0.3"
+    ]
+}
