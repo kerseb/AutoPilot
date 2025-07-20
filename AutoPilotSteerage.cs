@@ -74,8 +74,6 @@ namespace AutoPilot
                     
                     activated = true;  
                 }
-                float rudderAngle = rudder.currentAngle; // Positive = turning left
-                float maxRudder = rudderJoint.limits.max;
 
                 // Calculate the difference in heading
                 headingDifference = autopilotCourse - BoatHeading();
