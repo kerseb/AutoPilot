@@ -1,11 +1,12 @@
-using System;
+using HarmonyLib;
 using UnityEngine;
 
 namespace AutoPilot
 {
+    [HarmonyPatch(typeof(Rudder), "Start")]
     public class AutoPilotPatches
     {
-        public static void RudderPatch(Rudder __instance)
+        public static void Postfix(Rudder __instance)
         {   //patching the rudder to find the tiller on modded boats (could patch anything but this seems fitting)
 
             Transform boatModel = __instance.GetComponentInParent<BoatHorizon>()?.transform;
@@ -33,7 +34,6 @@ namespace AutoPilot
 
                 return;
             }
-
             tiller1.gameObject.AddComponent<AutoPilotSteerage>();
             tiller2.gameObject.AddComponent<AutoPilotSteerage>();
         }

@@ -1,6 +1,6 @@
 using UnityEngine;
 using SailwindModdingHelper;
-using System.Reflection;
+using HarmonyLib;
 
 namespace AutoPilot
 {
@@ -10,13 +10,13 @@ namespace AutoPilot
         private HingeJoint rudderJoint;
         private Rudder rudder;
         private GPButtonSteeringWheel steeringWheel;
-        private bool autopilotAcitve = false;
-        private float autopilotCourse = 0;
+        private bool autopilotActive = false;
+        private float autopilotCourse;
         private bool activated = false;
         private float threshold = 15f;  // Degrees within to start smooth course correction
         private float currentInputMax;
         private float headingDifference;
-
+        public bool allowUserInput = true; // Allow the user to control the autopilot. Intended to be toggled by another mod. 
         public void Awake()
         {
             boat = GetComponentInParent<PurchasableBoat>().transform;
@@ -26,26 +26,32 @@ namespace AutoPilot
 
             GameEvents.OnPlayerInput += (_, __) =>
             {
-                if (AutoPilotMain.activateAutopilot.Value.IsDown())
+                if (allowUserInput)
                 {
-                    autopilotAcitve = !autopilotAcitve;
-                }
-                if (AutoPilotMain.leftAutopilot.Value.IsDown())
-                {
-                    autopilotCourse = angleCorrection(autopilotCourse - 5f);
-                }
-                if (AutoPilotMain.rightAutopilot.Value.IsDown())
-                {
-                    autopilotCourse = angleCorrection(autopilotCourse + 5f);
+                    if (AutoPilotMain.activateAutopilot.Value.IsDown())
+                    {
+                        autopilotActive = !autopilotActive;
+                    }
+                    if (AutoPilotMain.leftAutopilot.Value.IsDown())
+                    {
+                        autopilotCourse = angleCorrection(autopilotCourse - 5f);
+                    }
+                    if (AutoPilotMain.rightAutopilot.Value.IsDown())
+                    {
+                        autopilotCourse = angleCorrection(autopilotCourse + 5f);
+                    }
                 }
             };
         }
         public void Update()
-        {
-            if(AutoPilotMain.rudderHUDConfig.Value){
+        {   
+            // UI on steering wheel if activated
+            if (AutoPilotMain.rudderHUDConfig.Value)
+            {
                 if (steeringWheel.IsLookedAt() || steeringWheel.IsStickyClicked() || steeringWheel.IsCliked())
                 {
-                    steeringWheel.description = ""; 
+
+                    steeringWheel.description = "";
                     steeringWheel.description += "\n BoatHeading: " + Mathf.RoundToInt(BoatHeading());
                     steeringWheel.description += "\n Autopilot: " + Mathf.RoundToInt(autopilotCourse);
                     // for debug:
@@ -54,25 +60,22 @@ namespace AutoPilot
                     // steeringWheel.description += "\n headingDifference: " + headingDifference;                 
                 }
             }
-            
 
 
-            if (autopilotAcitve)
+
+            if (autopilotActive)
             {
                 if (!activated)
-                {   
+                {
                     // set some values on autopilot acitvation                    
-                    currentInputMax = rudderJoint.limits.max * steeringWheel.gearRatio;     
+                    currentInputMax = rudderJoint.limits.max * steeringWheel.gearRatio;
                     autopilotCourse = BoatHeading();
-
-                    // TODO: I tried to get it to work without the need to click on the wheel once, but it did not..
-                    // pointer =  GetComponent<GoPointer>();      
-                    // steeringWheel.OnActivate(pointer);
-                    // steeringWheel.OnUnactivate(pointer);
-                    // steeringWheel.Click(new GoPointerMovement());
-                    // steeringWheel.StickyClick(new GoPointer());
-                    
-                    activated = true;  
+                    activated = true;
+                }
+                // steering wheel needs to be locked that steering works
+                if (!(bool)Traverse.Create(steeringWheel).Field("locked").GetValue())
+                {
+                    Traverse.Create(steeringWheel).Field("locked").SetValue(true);
                 }
 
                 // Calculate the difference in heading
@@ -86,7 +89,6 @@ namespace AutoPilot
 
                 if (headingDifference >= 0) // steer right
                 {
-                   
                     if (Mathf.Abs(headingDifference) > threshold)
                     {
                         steeringWheel.currentInput = -currentInputMax;
@@ -95,27 +97,27 @@ namespace AutoPilot
                     {
                         steeringWheel.currentInput = -smoothSteering(headingDifference);
                     }
-                    
+
                 }
                 else // steer left
                 {
-                   
+
                     if (Mathf.Abs(headingDifference) > threshold)
                     {
                         steeringWheel.currentInput = currentInputMax;
                     }
                     else
                     {
-                       steeringWheel.currentInput = smoothSteering(headingDifference);  
-                    
+                        steeringWheel.currentInput = smoothSteering(headingDifference);
+
                     }
-                }                            
+                }                   
             }
             else
             {
                 if (activated)
                 {
-                    activated = false;  
+                    activated = false;
                 }
             }
         }
@@ -155,7 +157,7 @@ namespace AutoPilot
         Start AutoPilot from outside the mod  
         */
         {
-            autopilotAcitve = !autopilotAcitve;
+            autopilotActive = !autopilotActive;
         }
         public void setCourse(float course)
         /*

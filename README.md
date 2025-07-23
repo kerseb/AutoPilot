@@ -8,10 +8,6 @@
 * Press **`K`** to apply a course correction to the **left**.
 * Press **`L`** to apply a course correction to the **right**.
 
-## ⚠️ Important
-
-Before using the autopilot, **you must click the rudder once** in-game to initialize the mod correctly. Failing to do so will prevent the autopilot from functioning.
-
 ## 📦 Requires
 
 To use this mod, you need the following:
