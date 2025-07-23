@@ -27,9 +27,6 @@ namespace AutoPilot
         {
             // Plugin startup logic
             Logger = base.Logger;
-            Logger.LogInfo($"PLUGIN_GUID: {MyPluginInfo.PLUGIN_GUID} is loaded!");
-            Logger.LogInfo($"PLUGIN_NAME: {MyPluginInfo.PLUGIN_NAME} is loaded!");
-            Logger.LogInfo($"PLUGIN_VERSION: {MyPluginInfo.PLUGIN_VERSION} is loaded!");
             activateAutopilot = Config.Bind("Hotkeys", "Activate Autopilot Key", new KeyboardShortcut(KeyCode.O));
             leftAutopilot = Config.Bind("Hotkeys", "Left Autopilot Key", new KeyboardShortcut(KeyCode.K));
             rightAutopilot = Config.Bind("Hotkeys", "Right Autopilot Key", new KeyboardShortcut(KeyCode.L));
