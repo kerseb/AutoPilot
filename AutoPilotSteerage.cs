@@ -17,6 +17,7 @@ namespace AutoPilot
         private float currentInputMax;
         private float headingDifference;
         public bool allowUserInput = true; // Allow the user to control the autopilot. Intended to be toggled by another mod. 
+        public bool canControl = false; 
         public void Awake()
         {
             boat = GetComponentInParent<PurchasableBoat>().transform;
@@ -62,8 +63,19 @@ namespace AutoPilot
             }
 
 
-
-            if (autopilotActive)
+        if (GameState.currentBoat != null)
+        {
+            canControl = GameState.currentBoat.IsChildOf(boat.transform);
+        }
+        else if (GameState.lastBoat != null)
+        {
+            canControl = GameState.lastBoat.IsChildOf(boat.transform);
+        }
+        else
+        {
+            canControl = false;
+        }
+        if (autopilotActive && canControl)
             {
                 if (!activated)
                 {

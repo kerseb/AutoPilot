@@ -1,3 +1,8 @@
+## [1.0.3] - 2025-07-24
+
+### Fixed 
+- Only ships where the player is currently on or was last on can be controlled now. Last on only possible if currently not on any ship, i.e in water or on land.
+
 ## [1.0.2] - 2025-07-23
 
 ### Fixed

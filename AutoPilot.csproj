@@ -3,7 +3,7 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>com.kerseb.AutoPilot</AssemblyName>
     <Product>AutoPilot</Product>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <RestoreAdditionalProjectSources>
@@ -80,7 +80,6 @@
 
     <!-- Create output directory if it doesn't exist -->
     <MakeDir Directories="$(ZipOutputDir)" />
-
     <!-- Zip the plugin folder -->
     <Exec Command="powershell -NoLogo -NoProfile -Command &quot;Compress-Archive -Path '$(ModOutputDir)\*' -DestinationPath '$(ZipOutputDir)\$(ZipFileName)' -Force&quot;" />
   </Target>
