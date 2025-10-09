@@ -1,6 +1,9 @@
 using UnityEngine;
 using SailwindModdingHelper;
 using HarmonyLib;
+using System;
+using System.Reflection;
+
 
 namespace AutoPilot
 {
@@ -10,78 +13,132 @@ namespace AutoPilot
         private HingeJoint rudderJoint;
         private Rudder rudder;
         private GPButtonSteeringWheel steeringWheel;
-        private bool autopilotActive = false;
+        private Rigidbody shipRigidbody;
+        private bool autopilotActiveCourse = false;
+        private bool autopilotActiveWind = false;
         private float autopilotCourse;
         private bool activated = false;
-        private float threshold = 15f;  // Degrees within to start smooth course correction
         private float currentInputMax;
-        private float headingDifference;
         public bool allowUserInput = true; // Allow the user to control the autopilot. Intended to be toggled by another mod. 
-        public bool canControl = false; 
+        public bool canControl = false;
+        // PID state
+        private float integral;
+        private float lastError;
+        private float lastTime;
+
+        // Auto tack/jibe state
+        private bool autoTacking = false;
+
         public void Awake()
         {
-            boat = GetComponentInParent<PurchasableBoat>().transform;
-            rudder = boat.GetComponentInChildren<Rudder>();
-            rudderJoint = rudder.GetComponent<HingeJoint>();
-            steeringWheel = boat.GetComponentInChildren<GPButtonSteeringWheel>();
+            rudder = GetComponent<Rudder>();
+            if (!rudder) return;
+
+            GPButtonSteeringWheel[] allGPButtonSteeringWheel = FindObjectsOfType<GPButtonSteeringWheel>();
+            foreach (GPButtonSteeringWheel button in allGPButtonSteeringWheel)
+            {
+                if (rudder == ((Rudder)Traverse.Create(button).Field("rudder").GetValue()))
+                {
+                    steeringWheel = button;
+                    boat = GetComponentInParent<PurchasableBoat>().transform;
+                    rudderJoint = button.attachedRudder;
+                    shipRigidbody = boat.GetComponent<Rigidbody>();
+                }
+            }
+
+            // return;
 
             GameEvents.OnPlayerInput += (_, __) =>
             {
                 if (allowUserInput)
                 {
-                    if (AutoPilotMain.activateAutopilot.Value.IsDown())
+                    if (AutoPilotMain.activateAutopilotCourse.Value.IsDown())
                     {
-                        autopilotActive = !autopilotActive;
+                        autopilotActiveCourse = !autopilotActiveCourse;
+                        if (autopilotActiveWind)
+                        {
+                            autopilotActiveWind = false;
+                            activated = false;
+                        }
                     }
-                    if (AutoPilotMain.leftAutopilot.Value.IsDown())
+                    if (AutoPilotMain.activateAutopilotWind.Value.IsDown())
                     {
-                        autopilotCourse = angleCorrection(autopilotCourse - 5f);
+                        autopilotActiveWind = !autopilotActiveWind;
+                        if (autopilotActiveCourse)
+                        {
+                            autopilotActiveCourse = false;
+                            activated = false;
+                        }
                     }
-                    if (AutoPilotMain.rightAutopilot.Value.IsDown())
+                    if (!autoTacking && AutoPilotMain.leftAutopilot.Value.IsDown())
                     {
-                        autopilotCourse = angleCorrection(autopilotCourse + 5f);
+                        autopilotCourse -= AutoPilotMain.angleAdjustStep.Value;
+                        autopilotCourse = autopilotCourse < -180f ? 180f - Mathf.Repeat(-autopilotCourse, 180f) : autopilotCourse;
+
+                    }
+                    if (!autoTacking && AutoPilotMain.rightAutopilot.Value.IsDown())
+                    {
+                        autopilotCourse += AutoPilotMain.angleAdjustStep.Value;
+                        autopilotCourse = autopilotCourse > 180f ? -180f + Mathf.Repeat(autopilotCourse, 180f) : autopilotCourse;
+                    }
+                    if ((autopilotActiveCourse || autopilotActiveWind) && canControl && AutoPilotMain.tackJibeKey.Value.IsDown())
+                    {
+                        if (!autoTacking)
+                        {
+                            InitiateAutoTackJibe();
+                        }
                     }
                 }
             };
         }
         public void Update()
-        {   
+        {
+            if (!rudder || !steeringWheel) return;
             // UI on steering wheel if activated
             if (AutoPilotMain.rudderHUDConfig.Value)
             {
                 if (steeringWheel.IsLookedAt() || steeringWheel.IsStickyClicked() || steeringWheel.IsCliked())
                 {
-
                     steeringWheel.description = "";
-                    steeringWheel.description += "\n BoatHeading: " + Mathf.RoundToInt(BoatHeading());
+                    // steeringWheel.description += "\n Test: " + test;
+                    steeringWheel.description += "\n BoatHeading: " + Mathf.RoundToInt(BoatHeading() < 0 ? BoatHeading() + 360f : BoatHeading());
                     steeringWheel.description += "\n Autopilot: " + Mathf.RoundToInt(autopilotCourse);
+                    steeringWheel.description += "\n Mode: " + (autopilotActiveCourse ? "Compass" : (autopilotActiveWind ? "Wind" : "Off"));
                     // for debug:
                     // steeringWheel.description += "\n Rudder Angle: " + Mathf.RoundToInt(rudder.currentAngle);
-                    // steeringWheel.description += "\n currentInput: " + steeringWheel.currentInput;
-                    // steeringWheel.description += "\n headingDifference: " + headingDifference;                 
+                    // steeringWheel.description += "\n GetWindAngle: " + Mathf.RoundToInt(GetApparentWindAngle());
+                    // steeringWheel.description += "\n Command: " + steeringWheel.currentInput / currentInputMax;
+                    // steeringWheel.description += "\n autoTacking: " + autoTacking;
                 }
             }
 
-
-        if (GameState.currentBoat != null)
-        {
-            canControl = GameState.currentBoat.IsChildOf(boat.transform);
-        }
-        else if (GameState.lastBoat != null)
-        {
-            canControl = GameState.lastBoat.IsChildOf(boat.transform);
-        }
-        else
-        {
-            canControl = false;
-        }
-        if (autopilotActive && canControl)
+            if (GameState.currentBoat != null)
+            {
+                canControl = GameState.currentBoat.IsChildOf(boat.transform);
+            }
+            else if (GameState.lastBoat != null)
+            {
+                canControl = GameState.lastBoat.IsChildOf(boat.transform);
+            }
+            else
+            {
+                canControl = false;
+            }
+            if ((autopilotActiveCourse || autopilotActiveWind) && canControl)
             {
                 if (!activated)
                 {
                     // set some values on autopilot acitvation                    
                     currentInputMax = rudderJoint.limits.max * steeringWheel.gearRatio;
-                    autopilotCourse = BoatHeading();
+                    if (autopilotActiveCourse)
+                    {
+                        autopilotCourse = BoatHeading();
+                    }
+                    else if (autopilotActiveWind)
+                    {
+                        autopilotCourse = GetApparentWindAngle();
+                    }
+                    
                     activated = true;
                 }
                 // steering wheel needs to be locked that steering works
@@ -89,41 +146,14 @@ namespace AutoPilot
                 {
                     Traverse.Create(steeringWheel).Field("locked").SetValue(true);
                 }
-
-                // Calculate the difference in heading
-                headingDifference = autopilotCourse - BoatHeading();
-                // Normalize to the range (-180, 180]
-                if (headingDifference > 180f)
-                    headingDifference -= 360f;
-                else if (headingDifference <= -180f)
-                    headingDifference += 360f;
-
-
-                if (headingDifference >= 0) // steer right
+                if (autopilotActiveWind || autoTacking)
                 {
-                    if (Mathf.Abs(headingDifference) > threshold)
-                    {
-                        steeringWheel.currentInput = -currentInputMax;
-                    }
-                    else
-                    {
-                        steeringWheel.currentInput = -smoothSteering(headingDifference);
-                    }
-
+                    ApplySteering(GetApparentWindAngle(), autopilotCourse);
                 }
-                else // steer left
+                else if (autopilotActiveCourse)
                 {
-
-                    if (Mathf.Abs(headingDifference) > threshold)
-                    {
-                        steeringWheel.currentInput = currentInputMax;
-                    }
-                    else
-                    {
-                        steeringWheel.currentInput = smoothSteering(headingDifference);
-
-                    }
-                }                   
+                    ApplySteering(BoatHeading(), autopilotCourse);
+                } 
             }
             else
             {
@@ -133,52 +163,105 @@ namespace AutoPilot
                 }
             }
         }
-
-        private float angleCorrection(float angle)
+        private float AngleCorrection(float angle)
         /*
-        Function to ensure a newly calculated angle stays between [0,360)
+        Function to ensure a newly calculated angle stays between [-180,180)
         */
         {
-            angle = (angle % 360f + 360f) % 360f;
-            return angle; 
+            angle = Mathf.Clamp(angle, -180f, 180f);
+            return angle;
         }
-        private float smoothSteering(float headingDifference)
-        /*
-        Allows for smoother steering by encorporating the headingDifference. The greater it is the more aggresive the boat should steer.
-        Smooth to 0 decaying function.
-        */
+        private void ApplySteering(float currentAngle, float targetAngle)
         {
-            headingDifference = Mathf.Abs(headingDifference);
-            float safeDiff = Mathf.Max(headingDifference, 0.001f); // Avoid log(0)
-            return currentInputMax * Mathf.Log10(1 + safeDiff) / Mathf.Log10(1 + 180f);   
+            // Handle auto-tacking transition
+            if (autoTacking)
+            {
+                
+                if (Mathf.Abs(currentAngle - autopilotCourse) <= 1)// (tackProgress >= 1f)
+                {
+                    // Tack complete
+                    autopilotCourse = autopilotActiveCourse ? BoatHeading() : autopilotCourse; 
+                    autoTacking = false;
+                    integral = 0f; // Reset integral on tack completion
+                }
+            }
 
+            float error = Mathf.DeltaAngle(targetAngle, currentAngle);
+            float deltaTime = Time.time - lastTime;
+            
+            if (deltaTime > 0.05f) // Update at ~20Hz
+            {
+                // PID - more aggressive tuning
+                float p = error;
+                integral += error * deltaTime;
+                integral = Mathf.Clamp(integral, -50f, 50f);
+                float d = (error - lastError) / deltaTime;
+               
+                float command =  AutoPilotMain.kp.Value * p +  AutoPilotMain.ki.Value * integral + AutoPilotMain.kd.Value * d;
+                command = Mathf.Clamp(command, -1f, 1f);
 
+                steeringWheel.currentInput = currentInputMax * command;
+
+                lastError = error;
+                lastTime = Time.time;
+            }
+        }
+        private void InitiateAutoTackJibe()
+        {
+            autopilotCourse = autopilotActiveWind? autopilotCourse:-GetApparentWindAngle(); 
+            autoTacking = true;
         }
         private float BoatHeading()
         /*
         calculates boat heading in an absolute frame of reference
         */
-        {   
+        {
             float boatHeading = Vector3.SignedAngle(boat.forward, Vector3.forward, -Vector3.up);
-            boatHeading = boatHeading < 0 ? boatHeading + 360f : boatHeading; // corrects from [-180, 180] to [0, 360]
-            return boatHeading;
+            // boatHeading = boatHeading < 0 ? boatHeading + 360f : boatHeading; // corrects from [-180, 180] to [0, 360]
+            return AngleCorrection(boatHeading);
         }
 
-        public void toggleAutoPilot()
+        public void ToggleAutoPilotWind()
         /*
-        Start AutoPilot from outside the mod  
+        Start AutoPilot Wind Angle from outside the mod  
         */
         {
-            autopilotActive = !autopilotActive;
+            autopilotActiveWind = !autopilotActiveWind;
+            autopilotActiveCourse = false ? autopilotActiveCourse : autopilotActiveCourse;
         }
-        public void setCourse(float course)
+        public void ToggleAutoPilotCourse()
+        /*
+        Start AutoPilot Wind Angle from outside the mod  
+        */
+        {
+            autopilotActiveCourse = !autopilotActiveCourse;
+            autopilotActiveWind = false ? autopilotActiveWind : autopilotActiveWind;
+        }
+        public void SetCourse(float course)
         /*
         set AutoPilot course from outside the mod  
         */
         {
             autopilotCourse = course;
         }
-        
+
+        private float GetApparentWindAngle()
+        {
+            try
+            {
+                Vector3 apparentWind = Wind.currentWind - shipRigidbody.velocity;
+                float apparentWindAngle = Vector3.SignedAngle(-shipRigidbody.velocity, apparentWind, -Vector3.up);
+                return AngleCorrection(apparentWindAngle);
+            }
+            catch (Exception e)
+            {
+                AutoPilotMain.Logger.LogError($"GetApparentWindAngle error: {e}");
+                return 0;
+            }
+            
+            
+        }
+
     }
 }
 

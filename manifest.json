@@ -1,6 +1,6 @@
 ﻿{
     "name": "AutoPilot",
-    "version_number": "1.0.3",
+    "version_number": "1.1.0",
     "website_url": "https://github.com/kerseb/AutoPilot",
     "description": "AutoPilot is a simple ship autopilot mod that allows for automated steering",
     "dependencies": [
