@@ -8,6 +8,8 @@
 * Press **`P`** to activate or deactivate the autopilot (apparent wind version).
 * Press **`K`** to apply a course correction to the **left**.
 * Press **`L`** to apply a course correction to the **right**.
+* Press **`Shift+K`** / **`Shift+L`** for a fine correction of 1 degree (normal K / L move 5 degrees; both step sizes are configurable).
+* The HUD shows the heading and autopilot setpoint as 0-359.
 
 ## 📦 Requires
 

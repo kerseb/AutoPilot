@@ -83,16 +83,26 @@ namespace AutoPilot
                             activated = false;
                         }
                     }
-                    if (!autoTacking && AutoPilotMain.leftAutopilot.Value.IsDown())
+                    if (!autoTacking)
                     {
-                        autopilotCourse -= AutoPilotMain.angleAdjustStep.Value;
-                        autopilotCourse = autopilotCourse < -180f ? 180f - Mathf.Repeat(-autopilotCourse, 180f) : autopilotCourse;
-
-                    }
-                    if (!autoTacking && AutoPilotMain.rightAutopilot.Value.IsDown())
-                    {
-                        autopilotCourse += AutoPilotMain.angleAdjustStep.Value;
-                        autopilotCourse = autopilotCourse > 180f ? -180f + Mathf.Repeat(autopilotCourse, 180f) : autopilotCourse;
+                        // Fine keys (Shift+K / Shift+L by default) are checked first; the normal keys are ignored while Shift is held
+                        bool shiftHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+                        if (AutoPilotMain.leftAutopilotFine.Value.IsDown())
+                        {
+                            AdjustCourse(-AutoPilotMain.angleAdjustStepFine.Value);
+                        }
+                        else if (AutoPilotMain.rightAutopilotFine.Value.IsDown())
+                        {
+                            AdjustCourse(AutoPilotMain.angleAdjustStepFine.Value);
+                        }
+                        else if (!shiftHeld && AutoPilotMain.leftAutopilot.Value.IsDown())
+                        {
+                            AdjustCourse(-AutoPilotMain.angleAdjustStep.Value);
+                        }
+                        else if (!shiftHeld && AutoPilotMain.rightAutopilot.Value.IsDown())
+                        {
+                            AdjustCourse(AutoPilotMain.angleAdjustStep.Value);
+                        }
                     }
                     if ((autopilotActiveCourse || autopilotActiveWind) && canControl && AutoPilotMain.tackJibeKey.Value.IsDown())
                     {
@@ -114,8 +124,8 @@ namespace AutoPilot
                 {
                     steeringWheel.description = "";
                     // steeringWheel.description += "\n Test: " + test;
-                    steeringWheel.description += "\n BoatHeading: " + Mathf.RoundToInt(BoatHeading() < 0 ? BoatHeading() + 360f : BoatHeading());
-                    steeringWheel.description += "\n Autopilot: " + Mathf.RoundToInt(autopilotCourse);
+                    steeringWheel.description += "\n BoatHeading: " + Display360(BoatHeading());
+                    steeringWheel.description += "\n Autopilot: " + Display360(autopilotCourse);
                     steeringWheel.description += "\n Mode: " + (autopilotActiveCourse ? "Compass" : (autopilotActiveWind ? "Wind" : "Off"));
                     // for debug:
                     // steeringWheel.description += "\n Rudder Angle: " + Mathf.RoundToInt(rudder.currentAngle);
@@ -188,6 +198,22 @@ namespace AutoPilot
             angle = Mathf.Clamp(angle, -180f, 180f);
             return angle;
         }
+        private void AdjustCourse(float delta)
+        /*
+        Moves the setpoint by delta degrees and keeps it inside (-180, 180]
+        */
+        {
+            autopilotCourse = Mathf.DeltaAngle(0f, autopilotCourse + delta);
+        }
+
+        private static int Display360(float angle)
+        /*
+        Formats an angle in (-180, 180] as a 0-359 reading for the HUD (compass heading and wind mode setpoint)
+        */
+        {
+            return Mathf.RoundToInt(Mathf.Repeat(angle, 360f)) % 360;
+        }
+
         private void ResetPid()
         {
             integral = 0f;

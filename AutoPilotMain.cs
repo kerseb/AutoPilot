@@ -18,8 +18,11 @@ namespace AutoPilot
         internal static ConfigEntry<KeyboardShortcut> activateAutopilotWind;
         internal static ConfigEntry<KeyboardShortcut> leftAutopilot;
         internal static ConfigEntry<KeyboardShortcut> rightAutopilot;
+        internal static ConfigEntry<KeyboardShortcut> leftAutopilotFine;
+        internal static ConfigEntry<KeyboardShortcut> rightAutopilotFine;
         internal static ConfigEntry<KeyboardShortcut> tackJibeKey;
 		internal static ConfigEntry<float> angleAdjustStep; 
+        internal static ConfigEntry<float> angleAdjustStepFine;
         internal static ConfigEntry<float> kp; 
         internal static ConfigEntry<float> ki; 
         internal static ConfigEntry<float> kd;
@@ -44,9 +47,12 @@ namespace AutoPilot
             activateAutopilotWind = Config.Bind("Hotkeys", "Activate Autopilot Key (wind)", new KeyboardShortcut(KeyCode.P));
             leftAutopilot = Config.Bind("Hotkeys", "Left Autopilot Key", new KeyboardShortcut(KeyCode.K));
             rightAutopilot = Config.Bind("Hotkeys", "Right Autopilot Key", new KeyboardShortcut(KeyCode.L));
+            leftAutopilotFine = Config.Bind("Hotkeys", "Left Autopilot Key (fine)", new KeyboardShortcut(KeyCode.K, KeyCode.LeftShift), "Fine course correction to the left. While Shift is held, the normal Left Autopilot Key is ignored.");
+            rightAutopilotFine = Config.Bind("Hotkeys", "Right Autopilot Key (fine)", new KeyboardShortcut(KeyCode.L, KeyCode.LeftShift), "Fine course correction to the right. While Shift is held, the normal Right Autopilot Key is ignored.");
             tackJibeKey = Config.Bind("Hotkeys", "Auto tack/jibe to opposite side", new KeyboardShortcut(KeyCode.Semicolon));
 
-			angleAdjustStep = Config.Bind("Controls", "AngleStep", 5f, "Degrees to adjust per key press");
+			angleAdjustStep = Config.Bind("Controls", "AngleStep", 5f, "Degrees to adjust per press of the Left/Right Autopilot Key");
+            angleAdjustStepFine = Config.Bind("Controls", "AngleStepFine", 1f, "Degrees to adjust per press of the fine Left/Right Autopilot Key (Shift+K / Shift+L by default)");
             kp = Config.Bind("Controls", "kp", 0.030f, "PID Costant: Proportional gain");
             ki = Config.Bind("Controls", "ki",  0.005f, "PID Costant: Integral gain");
             kd = Config.Bind("Controls", "kd", 0.015f, "PID Costant: Derivative gain");
