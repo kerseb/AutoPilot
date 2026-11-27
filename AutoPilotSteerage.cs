@@ -42,27 +42,76 @@ namespace AutoPilot
         // Auto tack/jibe state
         private bool autoTacking = false;
 
-        public void Awake()
-        {
-            rudder = GetComponent<Rudder>();
-            if (!rudder) return;
+        // Initialisation / fault handling (boats without a steering wheel, e.g. tiller dinghies, must not break the update loop)
+        private bool initialised = false;
+        private int initAttempts = 0;
+        private float nextInitAttempt = 0f;
+        private float faultUntil = 0f;
+        private bool faultLogged = false;
 
-            GPButtonSteeringWheel[] allGPButtonSteeringWheel = FindObjectsOfType<GPButtonSteeringWheel>();
-            foreach (GPButtonSteeringWheel button in allGPButtonSteeringWheel)
+        private bool TryInit()
+        /*
+        Finds the steering wheel, boat, rudder joint and rigidbody that belong to this rudder.
+        Returns false (and leaves the component inert) for rudders that are not steered by a wheel, e.g. the tillers of
+        modded dinghies, or when something it needs is missing.
+        */
+        {
+            if (initialised) return true;
+
+            rudder = GetComponent<Rudder>();
+            if (!rudder) return false;
+
+            GPButtonSteeringWheel match = null;
+            foreach (GPButtonSteeringWheel button in FindObjectsOfType<GPButtonSteeringWheel>())
             {
-                if (rudder == ((Rudder)Traverse.Create(button).Field("rudder").GetValue()))
+                if (!button) continue;
+                Rudder wheelRudder = Traverse.Create(button).Field("rudder").GetValue() as Rudder;
+                if (wheelRudder && wheelRudder == rudder)
                 {
-                    steeringWheel = button;
-                    boat = GetComponentInParent<PurchasableBoat>().transform;
-                    rudderJoint = button.attachedRudder;
-                    shipRigidbody = boat.GetComponent<Rigidbody>();
+                    match = button;
+                    break;
                 }
             }
+            if (!match) return false; // no wheel for this rudder: nothing to automate
 
-            // return;
+            PurchasableBoat purchasableBoat = GetComponentInParent<PurchasableBoat>();
+            if (!purchasableBoat)
+            {
+                AutoPilotMain.Logger.LogWarning($"AutoPilot: rudder '{name}' has a steering wheel but no PurchasableBoat parent, skipping.");
+                return false;
+            }
+
+            HingeJoint joint = match.attachedRudder ? match.attachedRudder : rudder.GetComponent<HingeJoint>();
+            if (!joint)
+            {
+                AutoPilotMain.Logger.LogWarning($"AutoPilot: rudder '{name}' on boat '{purchasableBoat.name}' has no hinge joint, skipping.");
+                return false;
+            }
+
+            Rigidbody body = purchasableBoat.GetComponent<Rigidbody>();
+            if (!body) body = purchasableBoat.GetComponentInParent<Rigidbody>();
+            if (!body)
+            {
+                AutoPilotMain.Logger.LogWarning($"AutoPilot: boat '{purchasableBoat.name}' has no rigidbody, skipping.");
+                return false;
+            }
+
+            steeringWheel = match;
+            boat = purchasableBoat.transform;
+            rudderJoint = joint;
+            shipRigidbody = body;
+            initialised = true;
+            return true;
+        }
+
+        public void Awake()
+        {
+            TryInit();
 
             GameEvents.OnPlayerInput += (_, __) =>
             {
+                // the handler is never unsubscribed, so ignore it for destroyed instances and for rudders we do not control
+                if (this == null || !initialised) return;
                 if (allowUserInput)
                 {
                     if (AutoPilotMain.activateAutopilotCourse.Value.IsDown())
@@ -116,7 +165,50 @@ namespace AutoPilot
         }
         public void Update()
         {
-            if (!rudder || !steeringWheel) return;
+            if (!initialised)
+            {
+                // wheels of modded boats may appear a little later; retry a few times, then give up
+                if (initAttempts >= 5 || Time.time < nextInitAttempt) return;
+                initAttempts++;
+                nextInitAttempt = Time.time + 2f;
+                if (!TryInit()) return;
+            }
+            if (Time.time < faultUntil) return;
+
+            try
+            {
+                UpdateAutopilot();
+            }
+            catch (Exception e)
+            {
+                HandleFault(e);
+            }
+        }
+
+        private void HandleFault(Exception e)
+        {
+            // Switch the autopilot off and back off for a while instead of throwing every frame
+            autopilotActiveCourse = false;
+            autopilotActiveWind = false;
+            autoTacking = false;
+            activated = false;
+            canControl = false;
+            CloseTelemetry();
+            faultUntil = Time.time + 5f;
+            if (!faultLogged)
+            {
+                faultLogged = true;
+                AutoPilotMain.Logger.LogError(
+                    $"AutoPilot switched off on '{name}' (boat '{(boat ? boat.name : "null")}'): {e.GetType().Name}: {e.Message}\n" +
+                    $"  rudder={(rudder ? "ok" : "null")} wheel={(steeringWheel ? "ok" : "null")} joint={(rudderJoint ? "ok" : "null")} " +
+                    $"rigidbody={(shipRigidbody ? "ok" : "null")} currentBoat={(GameState.currentBoat != null ? GameState.currentBoat.name : "null")} " +
+                    $"lastBoat={(GameState.lastBoat != null ? GameState.lastBoat.name : "null")}\n{e.StackTrace}");
+            }
+        }
+
+        private void UpdateAutopilot()
+        {
+            if (!rudder || !steeringWheel || !boat || !rudderJoint) return;
             // UI on steering wheel if activated
             if (AutoPilotMain.rudderHUDConfig.Value)
             {
@@ -167,7 +259,8 @@ namespace AutoPilot
                     OpenTelemetry();
                 }
                 // steering wheel needs to be locked that steering works
-                if (!(bool)Traverse.Create(steeringWheel).Field("locked").GetValue())
+                object lockedValue = Traverse.Create(steeringWheel).Field("locked").GetValue();
+                if (!(lockedValue is bool isLocked) || !isLocked)
                 {
                     Traverse.Create(steeringWheel).Field("locked").SetValue(true);
                 }
