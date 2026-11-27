@@ -32,6 +32,7 @@ namespace AutoPilot
         private float filteredD;         // low-pass filtered rate of change of the measured angle (deg/s)
         private float lastCommand;       // last normalised command, for the rate limiter
         private bool pidPrimed;          // false until a first measurement has been taken after activation
+        private bool lastSourceWind;     // true if the previous cycle regulated the apparent wind angle (not the compass heading)
 
         // Telemetry
         private StreamWriter telemetry;
@@ -197,6 +198,17 @@ namespace AutoPilot
 
         private void ApplySteering(float currentAngle, float targetAngle)
         {
+            // The regulated quantity switches between compass heading and apparent wind angle when a tack starts or
+            // finishes. Re-prime the PID then, otherwise the derivative sees a huge fake rate of change (it produced a
+            // ~0.6 command kick at the end of every tack) and the old integral no longer applies.
+            bool windSource = autopilotActiveWind || autoTacking;
+            if (windSource != lastSourceWind)
+            {
+                lastSourceWind = windSource;
+                pidPrimed = false;
+                integral = 0f;
+            }
+
             // Handle auto-tacking transition
             if (autoTacking)
             {
