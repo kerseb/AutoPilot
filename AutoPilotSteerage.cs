@@ -32,6 +32,8 @@ namespace AutoPilot
         private float filteredD;         // low-pass filtered rate of change of the measured angle (deg/s)
         private float lastCommand;       // last normalised command, for the rate limiter
         private bool pidPrimed;          // false until a first measurement has been taken after activation
+        private float lastTarget = float.NaN;      // setpoint of the previous cycle, to notice setpoint changes
+        private float lastTargetChangeTime;  // Time.time of the last setpoint change
         private bool lastSourceWind;     // true if the previous cycle regulated the apparent wind angle (not the compass heading)
 
         // Telemetry
@@ -313,6 +315,8 @@ namespace AutoPilot
             filteredD = 0f;
             lastCommand = 0f;
             pidPrimed = false;
+            lastTarget = float.NaN;
+            lastTargetChangeTime = Time.time;
         }
 
         private void ApplySteering(float currentAngle, float targetAngle)
@@ -354,6 +358,13 @@ namespace AutoPilot
                 return;
             }
 
+            // remember when the setpoint last changed (for the integral gate below)
+            if (float.IsNaN(lastTarget) || Mathf.Abs(Mathf.DeltaAngle(lastTarget, targetAngle)) > 0.01f)
+            {
+                lastTarget = targetAngle;
+                lastTargetChangeTime = now;
+            }
+
             // Same sign convention as before: positive error = measured angle is above the target
             float error = Mathf.DeltaAngle(targetAngle, currentAngle);
 
@@ -375,14 +386,20 @@ namespace AutoPilot
             // Conditional integration: do not wind up while the output is saturated in the direction of the error
             float unsaturated = kp * effError + ki * integral + kd * filteredD;
             bool saturated = Mathf.Abs(unsaturated) >= 1f && Mathf.Sign(unsaturated) == Mathf.Sign(effError);
-            if (Mathf.Abs(error) > AutoPilotMain.integralWindow.Value)
+            bool withinWindow = Mathf.Abs(error) <= AutoPilotMain.integralWindow.Value;
+            // A large error that is not shrinking and not caused by a recent setpoint change is a steady offset
+            // (weather helm, current): let the integral remove it instead of leaving the boat off course.
+            bool steadyOffset = Mathf.Abs(filteredD) < AutoPilotMain.integralSteadyRate.Value && now - lastTargetChangeTime > 4f;
+            if (!withinWindow && !steadyOffset)
             {
-                // far from the target (course change, tack): do not wind up, slowly bleed the integral instead
+                // course change / tack in progress: do not wind up, slowly bleed the integral instead
                 integral *= Mathf.Exp(-dt / 5f);
             }
             else if (!saturated)
             {
-                integral = Mathf.Clamp(integral + effError * dt, -50f, 50f);
+                // limit the integral term to +-0.5 of the full wheel range (was a fixed +-50 deg*s, too small for a boat with strong weather helm)
+                float integralLimit = 0.5f / Mathf.Max(AutoPilotMain.ki.Value, 0.0001f);
+                integral = Mathf.Clamp(integral + effError * dt, -integralLimit, integralLimit);
             }
 
             float pTerm = kp * effError;
