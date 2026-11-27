@@ -244,7 +244,12 @@ namespace AutoPilot
             // Conditional integration: do not wind up while the output is saturated in the direction of the error
             float unsaturated = kp * effError + ki * integral + kd * filteredD;
             bool saturated = Mathf.Abs(unsaturated) >= 1f && Mathf.Sign(unsaturated) == Mathf.Sign(effError);
-            if (!saturated)
+            if (Mathf.Abs(error) > AutoPilotMain.integralWindow.Value)
+            {
+                // far from the target (course change, tack): do not wind up, slowly bleed the integral instead
+                integral *= Mathf.Exp(-dt / 5f);
+            }
+            else if (!saturated)
             {
                 integral = Mathf.Clamp(integral + effError * dt, -50f, 50f);
             }
@@ -349,7 +354,11 @@ namespace AutoPilot
         calculates boat heading in an absolute frame of reference
         */
         {
-            float boatHeading = Vector3.SignedAngle(boat.forward, Vector3.forward, -Vector3.up);
+            // Use the horizontal projection of the bow direction. A 3D SignedAngle includes the boat's pitch, so near
+            // north its magnitude can never drop below the pitch angle and the sign flips, which makes the heading
+            // jump by twice the pitch angle when crossing 0 deg (this caused a sustained limit cycle on northerly courses).
+            Vector3 fwd = boat.forward;
+            float boatHeading = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
             // boatHeading = boatHeading < 0 ? boatHeading + 360f : boatHeading; // corrects from [-180, 180] to [0, 360]
             return AngleCorrection(boatHeading);
         }
@@ -383,7 +392,10 @@ namespace AutoPilot
             try
             {
                 Vector3 apparentWind = Wind.currentWind - shipRigidbody.velocity;
-                float apparentWindAngle = Vector3.SignedAngle(-shipRigidbody.velocity, apparentWind, -Vector3.up);
+                // flatten to the horizontal plane so pitching / heaving does not corrupt the angle
+                Vector3 flatVelocity = new Vector3(shipRigidbody.velocity.x, 0f, shipRigidbody.velocity.z);
+                apparentWind.y = 0f;
+                float apparentWindAngle = Vector3.SignedAngle(-flatVelocity, apparentWind, -Vector3.up);
                 return AngleCorrection(apparentWindAngle);
             }
             catch (Exception e)
