@@ -3,6 +3,9 @@ using SailwindModdingHelper;
 using HarmonyLib;
 using System;
 using System.Reflection;
+using System.IO;
+using System.Globalization;
+using System.Text;
 
 
 namespace AutoPilot
@@ -25,6 +28,15 @@ namespace AutoPilot
         private float integral;
         private float lastError;
         private float lastTime;
+        private float lastMeasurement;   // last measured angle, for derivative-on-measurement
+        private float filteredD;         // low-pass filtered rate of change of the measured angle (deg/s)
+        private float lastCommand;       // last normalised command, for the rate limiter
+        private bool pidPrimed;          // false until a first measurement has been taken after activation
+
+        // Telemetry
+        private StreamWriter telemetry;
+        private float telemetryStart;
+        private float telemetryLastFlush;
 
         // Auto tack/jibe state
         private bool autoTacking = false;
@@ -139,7 +151,9 @@ namespace AutoPilot
                         autopilotCourse = GetApparentWindAngle();
                     }
                     
+                    ResetPid();
                     activated = true;
+                    OpenTelemetry();
                 }
                 // steering wheel needs to be locked that steering works
                 if (!(bool)Traverse.Create(steeringWheel).Field("locked").GetValue())
@@ -160,7 +174,9 @@ namespace AutoPilot
                 if (activated)
                 {
                     activated = false;
+                    ResetPid();
                 }
+                CloseTelemetry();
             }
         }
         private float AngleCorrection(float angle)
@@ -171,41 +187,158 @@ namespace AutoPilot
             angle = Mathf.Clamp(angle, -180f, 180f);
             return angle;
         }
+        private void ResetPid()
+        {
+            integral = 0f;
+            filteredD = 0f;
+            lastCommand = 0f;
+            pidPrimed = false;
+        }
+
         private void ApplySteering(float currentAngle, float targetAngle)
         {
             // Handle auto-tacking transition
             if (autoTacking)
             {
-                
-                if (Mathf.Abs(currentAngle - autopilotCourse) <= 1)// (tackProgress >= 1f)
+                if (Mathf.Abs(Mathf.DeltaAngle(currentAngle, autopilotCourse)) <= 1f)
                 {
                     // Tack complete
-                    autopilotCourse = autopilotActiveCourse ? BoatHeading() : autopilotCourse; 
+                    autopilotCourse = autopilotActiveCourse ? BoatHeading() : autopilotCourse;
                     autoTacking = false;
                     integral = 0f; // Reset integral on tack completion
                 }
             }
 
-            float error = Mathf.DeltaAngle(targetAngle, currentAngle);
-            float deltaTime = Time.time - lastTime;
-            
-            if (deltaTime > 0.05f) // Update at ~20Hz
+            float now = Time.time;
+            float dt = now - lastTime;
+            if (dt <= 0.05f) return; // Update at ~20Hz
+
+            // First sample after (re)activation, or after a long gap: just take a measurement
+            if (!pidPrimed || dt > 0.5f)
             {
-                // PID - more aggressive tuning
-                float p = error;
-                integral += error * deltaTime;
-                integral = Mathf.Clamp(integral, -50f, 50f);
-                float d = (error - lastError) / deltaTime;
-               
-                float command =  AutoPilotMain.kp.Value * p +  AutoPilotMain.ki.Value * integral + AutoPilotMain.kd.Value * d;
-                command = Mathf.Clamp(command, -1f, 1f);
+                lastMeasurement = currentAngle;
+                filteredD = 0f;
+                lastTime = now;
+                pidPrimed = true;
+                return;
+            }
 
-                steeringWheel.currentInput = currentInputMax * command;
+            // Same sign convention as before: positive error = measured angle is above the target
+            float error = Mathf.DeltaAngle(targetAngle, currentAngle);
 
-                lastError = error;
-                lastTime = Time.time;
+            // Deadband (shrinks the error instead of cutting it, so there is no jump at the edge)
+            float deadband = AutoPilotMain.errorDeadband.Value;
+            float effError = Mathf.Abs(error) <= deadband ? 0f : error - Mathf.Sign(error) * deadband;
+
+            // Derivative on measurement (no kick when the target changes), low-pass filtered
+            float rawD = Mathf.DeltaAngle(lastMeasurement, currentAngle) / dt;
+            float tau = AutoPilotMain.derivativeFilter.Value;
+            float alpha = tau <= 0f ? 1f : dt / (tau + dt);
+            filteredD += alpha * (rawD - filteredD);
+
+            float gain = GainScale();
+            float kp = AutoPilotMain.kp.Value * gain;
+            float ki = AutoPilotMain.ki.Value * gain;
+            float kd = AutoPilotMain.kd.Value * gain;
+
+            // Conditional integration: do not wind up while the output is saturated in the direction of the error
+            float unsaturated = kp * effError + ki * integral + kd * filteredD;
+            bool saturated = Mathf.Abs(unsaturated) >= 1f && Mathf.Sign(unsaturated) == Mathf.Sign(effError);
+            if (!saturated)
+            {
+                integral = Mathf.Clamp(integral + effError * dt, -50f, 50f);
+            }
+
+            float pTerm = kp * effError;
+            float iTerm = ki * integral;
+            float dTerm = kd * filteredD;
+            float command = Mathf.Clamp(pTerm + iTerm + dTerm, -1f, 1f);
+
+            // Rate limit to avoid twitching the wheel
+            float maxStep = AutoPilotMain.maxCommandRate.Value * dt;
+            command = lastCommand + Mathf.Clamp(command - lastCommand, -maxStep, maxStep);
+
+            steeringWheel.currentInput = currentInputMax * command;
+
+            WriteTelemetry(now, currentAngle, targetAngle, error, pTerm, iTerm, dTerm, command, gain);
+
+            lastCommand = command;
+            lastMeasurement = currentAngle;
+            lastTime = now;
+        }
+
+        private float GainScale()
+        {
+            if (!AutoPilotMain.speedGainScaling.Value || shipRigidbody == null) return 1f;
+            float speed = Mathf.Max(shipRigidbody.velocity.magnitude, 0.5f);
+            return Mathf.Clamp(AutoPilotMain.referenceSpeed.Value / speed, 0.5f, 2f);
+        }
+
+        #region Telemetry
+        private static string F(float v) => v.ToString("F3", CultureInfo.InvariantCulture);
+
+        private void OpenTelemetry()
+        {
+            if (!AutoPilotMain.telemetryEnabled.Value || telemetry != null) return;
+            try
+            {
+                string dir = Path.Combine(BepInEx.Paths.BepInExRootPath, "AutoPilotTelemetry");
+                Directory.CreateDirectory(dir);
+                string file = Path.Combine(dir, "autopilot_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture) + ".csv");
+                telemetry = new StreamWriter(file, false, new UTF8Encoding(false));
+                telemetry.WriteLine("t,mode,tacking,target,measured,error,p,i,d,integral,command,wheel_input,rudder_angle,speed,app_wind_angle,gain_scale,kp,ki,kd,deriv_filter,deadband,max_rate");
+                telemetryStart = Time.time;
+                telemetryLastFlush = Time.time;
+                AutoPilotMain.Logger.LogInfo("Telemetry writing to " + file);
+            }
+            catch (Exception e)
+            {
+                AutoPilotMain.Logger.LogError("Could not open telemetry file: " + e.Message);
+                telemetry = null;
             }
         }
+
+        private void WriteTelemetry(float now, float measured, float target, float error, float p, float i, float d, float command, float gain)
+        {
+            if (telemetry == null) return;
+            try
+            {
+                string mode = autopilotActiveCourse ? "compass" : (autopilotActiveWind ? "wind" : "off");
+                float speed = shipRigidbody != null ? shipRigidbody.velocity.magnitude : 0f;
+                telemetry.WriteLine(string.Join(",", new[]
+                {
+                    F(now - telemetryStart), mode, autoTacking ? "1" : "0",
+                    F(target), F(measured), F(error), F(p), F(i), F(d), F(integral), F(command),
+                    F(steeringWheel.currentInput), F(rudder.currentAngle), F(speed), F(GetApparentWindAngle()), F(gain),
+                    F(AutoPilotMain.kp.Value), F(AutoPilotMain.ki.Value), F(AutoPilotMain.kd.Value),
+                    F(AutoPilotMain.derivativeFilter.Value), F(AutoPilotMain.errorDeadband.Value), F(AutoPilotMain.maxCommandRate.Value)
+                }));
+                if (now - telemetryLastFlush > 2f)
+                {
+                    telemetry.Flush();
+                    telemetryLastFlush = now;
+                }
+            }
+            catch (Exception e)
+            {
+                AutoPilotMain.Logger.LogError("Telemetry write failed: " + e.Message);
+                CloseTelemetry();
+            }
+        }
+
+        private void CloseTelemetry()
+        {
+            if (telemetry == null) return;
+            try { telemetry.Flush(); telemetry.Dispose(); } catch { }
+            telemetry = null;
+        }
+
+        private void OnDestroy()
+        {
+            CloseTelemetry();
+        }
+        #endregion
+
         private void InitiateAutoTackJibe()
         {
             autopilotCourse = autopilotActiveWind? autopilotCourse:-GetApparentWindAngle(); 
