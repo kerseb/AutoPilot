@@ -53,13 +53,13 @@ namespace AutoPilot
 
 			angleAdjustStep = Config.Bind("Controls", "AngleStep", 5f, "Degrees to adjust per press of the Left/Right Autopilot Key");
             angleAdjustStepFine = Config.Bind("Controls", "AngleStepFine", 1f, "Degrees to adjust per press of the fine Left/Right Autopilot Key (Shift+K / Shift+L by default)");
-            kp = Config.Bind("Controls", "kp", 0.030f, "PID Costant: Proportional gain");
+            kp = Config.Bind("Controls", "kp", 0.040f, "PID Costant: Proportional gain");
             ki = Config.Bind("Controls", "ki",  0.005f, "PID Costant: Integral gain");
             kd = Config.Bind("Controls", "kd", 0.015f, "PID Costant: Derivative gain");
 
             derivativeFilter = Config.Bind("PID", "Derivative Filter Time (s)", 0.5f, new ConfigDescription("Low-pass time constant for the derivative term. Larger values smooth out wave-induced heading noise but make the damping slower. 0 disables filtering.", new AcceptableValueRange<float>(0f, 5f)));
             errorDeadband = Config.Bind("PID", "Error Deadband (deg)", 0.5f, new ConfigDescription("Heading errors smaller than this are ignored, so the wheel stops hunting around the target.", new AcceptableValueRange<float>(0f, 5f)));
-            integralWindow = Config.Bind("PID", "Integral Window (deg)", 8f, new ConfigDescription("The integral term only accumulates when the heading error is within this many degrees (prevents overshoot after large course changes). Outside the window the integral slowly bleeds off.", new AcceptableValueRange<float>(1f, 45f)));
+            integralWindow = Config.Bind("PID", "Integral Window (deg)", 4f, new ConfigDescription("The integral term only accumulates when the heading error is within this many degrees (prevents overshoot after large course changes). Outside the window the integral slowly bleeds off.", new AcceptableValueRange<float>(1f, 45f)));
             maxCommandRate = Config.Bind("PID", "Max Command Rate (1/s)", 1.5f, new ConfigDescription("Maximum change of the normalised steering command per second (1.0 = full wheel travel). Limits twitching.", new AcceptableValueRange<float>(0.1f, 10f)));
             speedGainScaling = Config.Bind("PID", "Scale Gains With Speed", false, "Experimental. Scale all gains by referenceSpeed / boat speed (clamped to 0.5x-2x) to compensate for rudder authority growing with speed.");
             referenceSpeed = Config.Bind("PID", "Reference Speed (m/s)", 2f, new ConfigDescription("Boat speed at which the configured gains apply unscaled (only used when speed scaling is enabled).", new AcceptableValueRange<float>(0.5f, 10f)));
